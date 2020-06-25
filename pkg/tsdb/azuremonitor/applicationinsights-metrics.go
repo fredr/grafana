@@ -73,48 +73,22 @@ func (mr *MetricsResult) ToFrame(metric, agg string, dimensions []string) (*data
 			}
 			continue
 		}
-
-		// Case with Segments/Dimensions
-		next := &seg
-		// decend (fast forward) to the next nested MetricsSegmentInfo by moving the 'next' pointer
-		decend := func(dim string) error {
-			fmt.Println(dim)
-			if next == nil || next.Segments == nil || len(*next.Segments) == 0 {
-				return fmt.Errorf("unexpected insights response while handling dimension %s", dim)
+		var traverse func(segments *[]MetricsSegmentInfo, depth int)
+		traverse = func(segments *[]MetricsSegmentInfo, depth int) {
+			if segments == nil {
+				return
 			}
-			next = &(*next.Segments)[0]
-			return nil
-		}
-		if dimLen > 1 {
-			if err := decend("root-level"); err != nil {
-				return nil, err
-			}
-		}
-		// When multiple dimensions are requests, there are nested MetricsSegmentInfo objects
-		// The higher levels just contain all the dimension key-value pairs except the last.
-		// So we fast forward to the depth that has the last tag pair and the metric values
-		// collect tags along the way
-		for i := 0; i < dimLen-1; i++ {
-			segStr := dimensions[i]
-			labels[segStr] = next.AdditionalProperties[segStr].(string)
-			fmt.Println(i, dimLen, dimensions[i])
-			if i != dimLen-2 { // the last dimension/segment will be in same []MetricsSegmentInfo slice as the metric value
-				if err := decend(dimensions[i]); err != nil {
-					return nil, err
+			for _, seg := range *segments {
+				if seg.Segments == nil {
+					handleInnerSegment(seg)
+					continue
 				}
+				segStr := dimensions[depth]
+				labels[segStr] = seg.AdditionalProperties[segStr].(string)
+				traverse(seg.Segments, depth+1)
 			}
 		}
-		if next == nil {
-			return nil, fmt.Errorf("unexpected dimension in insights response")
-		}
-
-		fmt.Println("inner", len(*next.Segments))
-		for _, innerSeg := range *next.Segments {
-			err := handleInnerSegment(innerSeg)
-			if err != nil {
-				return nil, err
-			}
-		}
+		traverse(seg.Segments, 0)
 		rowCounter++
 	}
 	return frame, nil
