@@ -8,15 +8,22 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 )
 
+// ToFrame converts a MetricsResult (a Application Insights metrics query) to a dataframe.
+// Due to the dynamic nature of the MetricsResult object, the name of the metric, aggregation, and
+// and requested dimensions are used to determine the expected shape of the object
 func (mr *MetricsResult) ToFrame(metric, agg string, dimensions []string) (*data.Frame, error) {
 	dimLen := len(dimensions)
-	frame := data.NewFrame("", data.NewField("StartTime", nil, []time.Time{}))
+
+	// The Response has both Start and End time, so we name the column "StartTime".
+	frame := data.NewFrame("", data.NewField("StartTime", nil, []time.Time{})) // The Response has both Start and End time, so we name the column "StartTime".
 
 	fieldIdxMap := map[string]int{}
 
 	rowCounter := 0
 
 	for _, seg := range *mr.Value.Segments {
+		frame.Extend(1)
+		frame.Set(0, rowCounter, seg.Start)
 		labels := data.Labels{}
 
 		handleInnerSegment := func(s MetricsSegmentInfo) error {
@@ -33,7 +40,7 @@ func (mr *MetricsResult) ToFrame(metric, agg string, dimensions []string) (*data
 				return fmt.Errorf("expected aggregation value for aggregation %v not found on inner segment while handling azure query", agg)
 			}
 			if dimLen != 0 {
-				key := dimensions[len(dimensions)-1]
+				key := dimensions[dimLen-1]
 				val, ok := s.AdditionalProperties[key]
 				if !ok {
 					return fmt.Errorf("unexpected dimension/segment key %v not found in response", key)
@@ -44,9 +51,8 @@ func (mr *MetricsResult) ToFrame(metric, agg string, dimensions []string) (*data
 				}
 				labels[key] = sVal
 			}
-
 			if _, ok := fieldIdxMap[labels.String()]; !ok {
-				frame.Fields = append(frame.Fields, data.NewField(metric, labels.Copy(), make([]*float64, 1)))
+				frame.Fields = append(frame.Fields, data.NewField(metric, labels.Copy(), make([]*float64, rowCounter+1)))
 				fieldIdxMap[labels.String()] = len(frame.Fields) - 1
 			}
 			var v *float64
@@ -59,9 +65,7 @@ func (mr *MetricsResult) ToFrame(metric, agg string, dimensions []string) (*data
 		}
 
 		// Simple case with no Segments/Dimensions
-		if len(dimensions) == 0 {
-			frame.Extend(1)
-			frame.Set(0, rowCounter, seg.Start)
+		if dimLen == 0 {
 			err := handleInnerSegment(seg)
 			rowCounter++
 			if err != nil {
@@ -74,6 +78,7 @@ func (mr *MetricsResult) ToFrame(metric, agg string, dimensions []string) (*data
 		next := &seg
 		// decend (fast forward) to the next nested MetricsSegmentInfo by moving the 'next' pointer
 		decend := func(dim string) error {
+			fmt.Println(dim)
 			if next == nil || next.Segments == nil || len(*next.Segments) == 0 {
 				return fmt.Errorf("unexpected insights response while handling dimension %s", dim)
 			}
@@ -92,8 +97,9 @@ func (mr *MetricsResult) ToFrame(metric, agg string, dimensions []string) (*data
 		for i := 0; i < dimLen-1; i++ {
 			segStr := dimensions[i]
 			labels[segStr] = next.AdditionalProperties[segStr].(string)
+			fmt.Println(i, dimLen, dimensions[i])
 			if i != dimLen-2 { // the last dimension/segment will be in same []MetricsSegmentInfo slice as the metric value
-				if err := decend(string(dimensions[i])); err != nil {
+				if err := decend(dimensions[i]); err != nil {
 					return nil, err
 				}
 			}
@@ -101,8 +107,8 @@ func (mr *MetricsResult) ToFrame(metric, agg string, dimensions []string) (*data
 		if next == nil {
 			return nil, fmt.Errorf("unexpected dimension in insights response")
 		}
-		frame.Extend(1)
-		frame.Set(0, rowCounter, seg.Start)
+
+		fmt.Println("inner", len(*next.Segments))
 		for _, innerSeg := range *next.Segments {
 			err := handleInnerSegment(innerSeg)
 			if err != nil {

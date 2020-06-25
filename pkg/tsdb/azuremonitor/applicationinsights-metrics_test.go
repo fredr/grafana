@@ -65,15 +65,40 @@ func TestInsightsMetricsToFrame(t *testing.T) {
 				return frame
 			},
 		},
+		// {
+		// 	name:       "segmented series",
+		// 	testFile:   "applicationinsights/4-application-insights-response-metrics-multi-segmented.json",
+		// 	metric:     "traces/count",
+		// 	agg:        "sum",
+		// 	dimensions: []string{"client/countryOrRegion", "client/city"},
+		// 	expectedFrame: func() *data.Frame {
+		// 		frame := data.NewFrame("") // data.NewField("StartTime", nil, []time.Time{
+		// 		// 	time.Date(2019, 9, 13, 1, 2, 3, 456789000, time.UTC),
+		// 		// 	time.Date(2019, 9, 13, 2, 2, 3, 456789000, time.UTC),
+		// 		// }),
+		// 		// data.NewField("value", data.Labels{"blob": "a"}, []*float64{
+		// 		// 	pointer.Float64(1),
+		// 		// 	pointer.Float64(2),
+		// 		// }),
+		// 		// data.NewField("value", data.Labels{"blob": "b"}, []*float64{
+		// 		// 	pointer.Float64(3),
+		// 		// 	pointer.Float64(4),
+		// 		// }),
+
+		// 		return frame
+		// 	},
+		// },
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			res, err := loadInsightsMetricsResponse(tt.testFile)
 			require.NoError(t, err)
+			t.Log(err)
 
 			frame, err := res.ToFrame(tt.metric, tt.agg, tt.dimensions)
 			require.NoError(t, err)
-
+			//t.Log(spew.Sdump(res))
+			t.Log(frame.StringTable(-1, -1))
 			if diff := cmp.Diff(tt.expectedFrame(), frame, data.FrameTestCompareOptions()...); diff != "" {
 				t.Errorf("Result mismatch (-want +got):\n%s", diff)
 			}
